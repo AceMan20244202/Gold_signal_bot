@@ -6,6 +6,8 @@ import json
 import os
 import time
 from datetime import datetime, timedelta
+from flask import Flask
+from threading import Thread
 
 # ==================== تنظیمات ====================
 TELEGRAM_TOKEN = "8384433271:AAHSZRwKRV3LtSNwErubiN9Id2opTh1UDLc"
@@ -13,13 +15,11 @@ ADMIN_ID = "979480591"
 CHANNEL_ID = "-1004458845744"
 TWELVEDATA_API_KEY = "7194fdf6808542bb8bf6bf61d7e7b5da"
 
-# ۱۰ جفت فارکس
 FOREX_SYMBOLS = [
     "EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD", "USD/CAD",
     "NZD/USD", "EUR/GBP", "EUR/JPY", "GBP/JPY", "XAU/USD"
 ]
 
-# ۲۵ ارز کریپتو
 CRYPTO_SYMBOLS = [
     "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
     "ADAUSDT", "DOGEUSDT", "DOTUSDT", "MATICUSDT", "LINKUSDT",
@@ -35,7 +35,6 @@ DB_FILE = "signals_db.json"
 USERS_FILE = "users_db.json"
 PENDING_FILE = "pending_db.json"
 
-# پیپ هر نماد فارکس
 PIP_SIZE = {
     "EUR/USD": 0.0001, "GBP/USD": 0.0001, "AUD/USD": 0.0001,
     "NZD/USD": 0.0001, "USD/CAD": 0.0001, "EUR/GBP": 0.0001,
@@ -43,17 +42,29 @@ PIP_SIZE = {
     "XAU/USD": 0.1
 }
 
-# نسبت ریسک به ریوارد
 RR_TP1 = 1.5
 RR_TP2 = 2.0
 RR_TP3 = 2.5
-
-# فیلتر Entry (5 پیپ)
 ENTRY_FILTER_PIPS = 5
 
 # ==================================================
 
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
+
+# ---------- وب‌سرور برای Render ----------
+web_app = Flask('')
+
+@web_app.route('/')
+def home():
+    return "MiHi Btn Bot is alive!"
+
+def run_web():
+    web_app.run(host='0.0.0.0', port=10000)
+
+def keep_alive():
+    t = Thread(target=run_web)
+    t.daemon = True
+    t.start()
 
 # ---------- متن‌های آماده ----------
 def footer():
@@ -126,54 +137,43 @@ def save_db(db):
     with open(DB_FILE, "w") as f:
         json.dump(db, f, indent=2)
 
-# ---------- ارسال به کانال ----------
+# ---------- ارسال ----------
 def send_to_channel(message):
     try:
         bot.send_message(CHANNEL_ID, message)
     except Exception as e:
         print(f"خطا در ارسال به کانال: {e}")
 
-# ---------- ارسال به ادمین ----------
 def send_to_admin(message, reply_markup=None):
     try:
         bot.send_message(ADMIN_ID, message, reply_markup=reply_markup)
     except Exception as e:
         print(f"خطا در ارسال به ادمین: {e}")
 
-# ---------- بررسی ساعت مجاز ----------
+# ---------- ساعت مجاز ----------
 def is_trading_hours():
     now_iran = datetime.utcnow() + timedelta(hours=3, minutes=30)
     hour = now_iran.hour
-    weekday = now_iran.weekday()  # 0=دوشنبه ... 4=جمعه، 5=شنبه، 6=یکشنبه
+    weekday = now_iran.weekday()
     
-    # جمعه شب به بعد (ساعت 23 جمعه)
     if weekday == 4 and hour >= 23:
         return False
-    # شنبه کامل
     if weekday == 5:
         return False
-    # یکشنبه قبل از 3 بامداد
     if weekday == 6 and hour < 3:
         return False
-    
-    # هر روز بین 22 شب تا 3 بامداد
     if hour >= 22 or hour < 3:
         return False
-    
     return True
 
 # ---------- محاسبه پیپ/پوینت ----------
 def calculate_pip_or_point(symbol, price_diff):
-    """محاسبه پیپ برای فارکس و پوینت برای کریپتو"""
     if symbol.endswith("USDT"):
-        # کریپتو: پوینت (1 واحد = 1 پوینت)
         return abs(price_diff)
     else:
-        # فارکس: پیپ
         pip = PIP_SIZE.get(symbol, 0.0001)
         return abs(price_diff) / pip
 
-# ---------- واحد اندازه‌گیری ----------
 def get_unit(symbol):
     if symbol.endswith("USDT"):
         return "پوینت"
@@ -238,7 +238,6 @@ def generate_analysis(symbol, signal, price, entry, sl, tp1):
         analysis = f"قیمت در ناحیه اشباع خرید قرار دارد.\n"
         analysis += f"احتمال اصلاح نزولی به سمت حمایت وجود دارد.\n"
         analysis += f"در صورت تثبیت قیمت زیر {entry:.5f}، ورود معتبر است."
-    
     return analysis
 
 # ---------- بررسی سیگنال ----------
@@ -265,12 +264,9 @@ def check_signal(symbol, df, interval, market):
     if signal:
         unit = get_unit(symbol)
         
-        # محاسبه Entry با فیلتر
         if symbol.endswith("USDT"):
-            # کریپتو: 5 پوینت
             entry_offset = ENTRY_FILTER_PIPS * 1.0
         else:
-            # فارکس: 5 پیپ
             pip = PIP_SIZE.get(symbol, 0.0001)
             entry_offset = ENTRY_FILTER_PIPS * pip
 
@@ -296,7 +292,6 @@ def check_signal(symbol, df, interval, market):
         now = datetime.now()
         current_time = now.strftime("%Y-%m-%d %H:%M")
         
-        # فیلتر تکرار: 15 دقیقه
         recent = [s for s in db["signals"]
                   if s["symbol"] == symbol
                   and s["type"] == signal
@@ -383,7 +378,6 @@ def check_results():
         if s["status"] != "active":
             continue
 
-        # چک انقضا
         if "expire_time" in s:
             try:
                 expire = datetime.strptime(s["expire_time"], "%Y-%m-%d %H:%M")
@@ -408,7 +402,6 @@ def check_results():
             except:
                 pass
 
-        # دریافت قیمت جدید
         if s["market"] == "فارکس":
             df = get_forex_candles(s["symbol"], "15min")
         else:
@@ -497,7 +490,7 @@ def check_results():
 🕐  زمان: {now.strftime('%Y-%m-%d %H:%M')}
 """ + footer()
                 send_to_channel(msg)
-        else:  # SELL
+        else:
             if not s["tp3_hit"] and current_price <= s["tp3"]:
                 s["tp3_hit"] = True
                 s["status"] = "win"
@@ -765,13 +758,11 @@ def process_telegram_updates():
                         })
                         save_pending(pending)
 
-                        # پیام خوش‌آمد به کاربر
                         try:
                             bot.send_message(chat_id, WELCOME_MSG)
                         except:
                             pass
 
-                        # پیام تایید به ادمین
                         keyboard = types.InlineKeyboardMarkup()
                         btn_yes = types.InlineKeyboardButton("✅ تایید", callback_data=f"approve_{chat_id}")
                         btn_no = types.InlineKeyboardButton("❌ رد", callback_data=f"reject_{chat_id}")
@@ -838,6 +829,9 @@ def process_telegram_updates():
 if __name__ == "__main__":
     print("🚀 بات ۲۴ ساعته MiHi Btn فعال شد...")
     
+    # فعال‌سازی وب‌سرور برای Render
+    keep_alive()
+    
     try:
         send_to_channel("✅ بات MiHi Btn فعال شد و آماده ارسال سیگنال است.")
     except:
@@ -853,16 +847,11 @@ if __name__ == "__main__":
             now = datetime.now()
             now_iran = datetime.utcnow() + timedelta(hours=3, minutes=30)
             
-            # ۱. پردازش پیام‌های تلگرام
             process_telegram_updates()
-
-            # ۲. بررسی نتایج سیگنال‌ها
             check_results()
 
-            # ۳. بررسی سیگنال‌های جدید (فقط در ساعات مجاز)
             if is_trading_hours():
                 current_minute = now_iran.minute
-                # هر ۱۵ دقیقه یکبار (دقیقه ۰، ۱۵، ۳۰، ۴۵)
                 if current_minute in [0, 15, 30, 45]:
                     time_key = f"{now_iran.hour}_{current_minute}_{now_iran.day}"
                     if last_signal_check != time_key:
@@ -885,21 +874,18 @@ if __name__ == "__main__":
                                 except Exception as e:
                                     print(f"خطا {symbol}: {e}")
 
-            # ۴. گزارش روزانه ساعت ۲۲ ایران
             if now_iran.hour == 22 and now_iran.minute < 5:
                 day_key = now_iran.strftime("%Y-%m-%d")
                 if last_daily_report != day_key:
                     last_daily_report = day_key
                     daily_report()
 
-            # ۵. گزارش هفتگی شنبه‌ها ساعت ۱۰ صبح
             if now_iran.weekday() == 5 and now_iran.hour == 10 and now_iran.minute < 5:
                 week_key = now_iran.strftime("%Y-%W")
                 if last_weekly_report != week_key:
                     last_weekly_report = week_key
                     weekly_report()
 
-            # ۶. پیام آخر هفته جمعه‌ها ساعت ۲۳
             if now_iran.weekday() == 4 and now_iran.hour == 23 and now_iran.minute < 5:
                 weekend_key = now_iran.strftime("%Y-%W")
                 if last_weekend_msg != weekend_key:
