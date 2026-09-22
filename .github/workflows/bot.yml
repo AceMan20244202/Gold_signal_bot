@@ -32,6 +32,6 @@ jobs:
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add signals_db.json || true
-          git diff --quiet && git diff --staged --quiet || git commit -m "Update signals DB"
+          git add signals_db.json users_db.json pending_db.json offset.txt || true
+          git diff --quiet && git diff --staged --quiet || git commit -m "Update DB"
           git push || true
