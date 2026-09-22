@@ -159,6 +159,7 @@ def daily_report():
 
 if __name__ == "__main__":
     print("🚀 اجرای بات...")
+    bot.send_message(CHAT_ID, "🧪 تست موفق! بات آماده است.")
     check_results()
     check_signal()
     now = datetime.now()
