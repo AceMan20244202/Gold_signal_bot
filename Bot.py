@@ -32,7 +32,6 @@ CRYPTO_INTERVALS = ["15m"]
 DB_FILE = "signals_db.json"
 USERS_FILE = "users_db.json"
 PENDING_FILE = "pending_db.json"
-REPORT_FILE = "report_count.json"
 
 PIP_SIZE = {
     "EUR/USD": 0.0001, "GBP/USD": 0.0001, "AUD/USD": 0.0001,
@@ -209,7 +208,7 @@ def generate_analysis(symbol, signal, price, entry, sl, tp1):
                 f"احتمال اصلاح نزولی به سمت حمایت وجود دارد.\n"
                 f"در صورت تثبیت قیمت زیر {entry:.5f}، ورود معتبر است.")
 
-# ---------- بررسی سیگنال (شرط‌ها شل‌تر شد) ----------
+# ---------- بررسی سیگنال ----------
 def check_signal(symbol, df, interval, market):
     if df is None or len(df) < 100: return
 
@@ -224,11 +223,9 @@ def check_signal(symbol, df, interval, market):
     price = df["close"].iloc[-1]
     signal = None
 
-    # شرط خرید: فقط هم‌جهتی صعودی (ساده‌تر شده)
-    if last_fast > prev_fast and last_slow > prev_slow and last_slow < 0:
+    if last_slow < 0 and last_fast < 0 and last_fast > prev_fast and last_slow > prev_slow:
         signal = "BUY"
-    # شرط فروش: فقط هم‌جهتی نزولی (ساده‌تر شده)
-    if last_fast < prev_fast and last_slow < prev_slow and last_slow > 0:
+    if last_slow > 0 and last_fast > 0 and last_fast < prev_fast and last_slow < prev_slow:
         signal = "SELL"
 
     if signal:
@@ -262,7 +259,10 @@ def check_signal(symbol, df, interval, market):
         now = datetime.now()
         current_time = now.strftime("%Y-%m-%d %H:%M")
         
-        recent = [s for s in db["signals"] if s["symbol"] == symbol and s["type"] == signal and (now - datetime.strptime(s["time"], "%Y-%m-%d %H:%M")).total_seconds() < 900]
+        recent = [s for s in db["signals"]
+                  if s["symbol"] == symbol
+                  and s["type"] == signal
+                  and (now - datetime.strptime(s["time"], "%Y-%m-%d %H:%M")).total_seconds() < 900]
         if recent: return
 
         market_name = "فارکس" if market == "FOREX" else "کریپتو"
@@ -310,7 +310,7 @@ def check_signal(symbol, df, interval, market):
 
         send_to_channel(msg)
 
-# ---------- بررسی نتایج و اعلام وضعیت ----------
+# ---------- بررسی نتایج ----------
 def check_results():
     db = load_db()
     changed = False
@@ -329,7 +329,6 @@ def check_results():
         current_price = df["close"].iloc[-1]
         unit = s.get("unit", "پیپ")
 
-        # چک TP/SL
         if s["type"] == "BUY":
             if not s["tp3_hit"] and current_price >= s["tp3"]:
                 s["tp3_hit"] = True; s["status"] = "win"; changed = True
@@ -360,13 +359,12 @@ def check_results():
     if changed:
         save_db(db)
 
-# ---------- اعلام وضعیت سیگنال‌های باز (هر ۱ ساعت) ----------
+# ---------- اعلام وضعیت پوزیشن‌های باز (هر ۱ ساعت) ----------
 def open_positions_report():
     db = load_db()
     active = [s for s in db["signals"] if s["status"] == "active"]
     
-    if not active:
-        return
+    if not active: return
     
     msg = "📋 وضعیت پوزیشن‌های باز:\n━━━━━━━━━━━━━━━━━━\n"
     
@@ -389,8 +387,8 @@ def open_positions_report():
         
         status_emoji = "🟢" if pnl > 0 else "🔴"
         
-        # وضعیت TP
-        tp_status = "TP1 ✅" if s.get("tp1_hit") else "TP1 ⏳"
+        tp_status = "TP1 ⏳"
+        if s.get("tp1_hit"): tp_status = "TP1 ✅"
         if s.get("tp2_hit"): tp_status = "TP2 ✅"
         if s.get("tp3_hit"): tp_status = "TP3 ✅"
         
@@ -398,9 +396,9 @@ def open_positions_report():
         msg += f"   ورود: {entry:.5f} | فعلی: {current:.5f}\n"
         msg += f"   سود/ضرر: {pnl:+.2f}%\n"
         msg += f"   وضعیت: {tp_status}\n"
-        msg += f"   SL: {s['sl']:.5f} | TP1: {s['tp1']:.5f}\n\n"
+        msg += f"   SL: {s['sl']:.5f}\n\n"
     
-    msg += "💡 توصیه: پوزیشن‌های در سود را مدیریت کنید."
+    msg += "💡 پوزیشن‌های در سود را مدیریت کنید."
     msg += footer()
     
     send_to_channel(msg)
@@ -590,12 +588,11 @@ def process_telegram_updates():
     except Exception as e:
         print(f"خطا آپدیت: {e}")
 
-# ---------- بررسی اینکه آیا این دقیقه ۱۰ هست؟ ----------
+# ---------- بررسی دقیقه ----------
 def is_10_min():
     now_iran = datetime.now(timezone.utc) + timedelta(hours=3, minutes=30)
     return now_iran.minute % 10 == 0
 
-# ---------- بررسی اینکه آیا این ساعت ۱ هست؟ ----------
 def is_1_hour():
     now_iran = datetime.now(timezone.utc) + timedelta(hours=3, minutes=30)
     return now_iran.minute == 0
@@ -604,15 +601,17 @@ def is_1_hour():
 if __name__ == "__main__":
     print("🚀 اجرای بات...")
     
-    # پردازش پیام‌های تلگرام
-    process_telegram_updates()
+    try:
+        process_telegram_updates()
+    except Exception as e:
+        print(f"خطا در process: {e}")
     
-    # بررسی نتایج
-    check_results()
+    try:
+        check_results()
+    except Exception as e:
+        print(f"خطا در check_results: {e}")
     
-    # بررسی سیگنال‌های جدید (فقط در ساعات مجاز)
     if is_trading_hours():
-        # فارکس
         for symbol in FOREX_SYMBOLS:
             for interval in FOREX_INTERVALS:
                 try:
@@ -621,7 +620,6 @@ if __name__ == "__main__":
                 except Exception as e:
                     print(f"خطا {symbol}: {e}")
 
-        # کریپتو
         for symbol in CRYPTO_SYMBOLS:
             for interval in CRYPTO_INTERVALS:
                 try:
@@ -630,25 +628,25 @@ if __name__ == "__main__":
                 except Exception as e:
                     print(f"خطا {symbol}: {e}")
 
-    # گزارش هر ۱۰ دقیقه برای اونر
     if is_10_min():
-        owner_report()
+        try: owner_report()
+        except: pass
     
-    # اعلام پوزیشن‌های باز هر ۱ ساعت
     if is_1_hour():
-        open_positions_report()
+        try: open_positions_report()
+        except: pass
     
-    # گزارش روزانه ساعت ۲۲ ایران
     now_iran = datetime.now(timezone.utc) + timedelta(hours=3, minutes=30)
     if now_iran.hour == 22 and now_iran.minute < 15:
-        daily_report()
+        try: daily_report()
+        except: pass
     
-    # گزارش هفتگی شنبه‌ها ساعت ۱۰ صبح
     if now_iran.weekday() == 5 and now_iran.hour == 10 and now_iran.minute < 15:
-        weekly_report()
+        try: weekly_report()
+        except: pass
     
-    # پیام آخر هفته جمعه‌ها ساعت ۲۳
     if now_iran.weekday() == 4 and now_iran.hour == 23 and now_iran.minute < 15:
-        weekend_message()
+        try: weekend_message()
+        except: pass
     
     print("✅ پایان اجرا")
