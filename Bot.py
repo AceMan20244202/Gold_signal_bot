@@ -5,7 +5,7 @@ from telebot import types
 import json
 import os
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from flask import Flask
 from threading import Thread
 
@@ -13,6 +13,7 @@ from threading import Thread
 TELEGRAM_TOKEN = "8384433271:AAHSZRwKRV3LtSNwErubiN9Id2opTh1UDLc"
 ADMIN_ID = "979480591"
 CHANNEL_ID = "-1004458845744"
+CHANNEL_INVITE_LINK = "https://t.me/+92D1qsrJrzw1OTc8"  # 👈 لینک دعوت کانال
 TWELVEDATA_API_KEY = "7194fdf6808542bb8bf6bf61d7e7b5da"
 
 FOREX_SYMBOLS = [
@@ -152,26 +153,18 @@ def send_to_admin(message, reply_markup=None):
 
 # ---------- ساعت مجاز ----------
 def is_trading_hours():
-    now_iran = datetime.utcnow() + timedelta(hours=3, minutes=30)
+    now_iran = datetime.now(timezone.utc) + timedelta(hours=3, minutes=30)
     hour = now_iran.hour
     weekday = now_iran.weekday()
     
-    print(f"🕐 ساعت ایران: {now_iran.strftime('%Y-%m-%d %H:%M')} | weekday: {weekday} | hour: {hour}")
-    
     if weekday == 4 and hour >= 23:
-        print("❌ جمعه شب - بسته")
         return False
     if weekday == 5:
-        print("❌ شنبه - بسته")
         return False
     if weekday == 6 and hour < 3:
-        print("❌ یکشنبه قبل از 3 - بسته")
         return False
     if hour >= 22 or hour < 3:
-        print("❌ ساعت قطع سیگنال (22 تا 3)")
         return False
-    
-    print("✅ ساعت مجاز")
     return True
 
 # ---------- محاسبه پیپ/پوینت ----------
@@ -198,7 +191,6 @@ def get_forex_candles(symbol, interval):
         r = requests.get(url, params=params, timeout=15)
         data = r.json()
         if "values" not in data:
-            print(f"⚠️ خطای TwelveData {symbol}: {data.get('message', 'نامشخص')}")
             return None
         df = pd.DataFrame(data["values"])
         df["datetime"] = pd.to_datetime(df["datetime"])
@@ -206,8 +198,7 @@ def get_forex_candles(symbol, interval):
         for col in ["open", "high", "low", "close"]:
             df[col] = df[col].astype(float)
         return df
-    except Exception as e:
-        print(f"❌ خطا در دریافت {symbol}: {e}")
+    except:
         return None
 
 # ---------- دریافت کندل کریپتو ----------
@@ -218,7 +209,6 @@ def get_crypto_candles(symbol, interval):
         r = requests.get(url, params=params, timeout=15)
         data = r.json()
         if not isinstance(data, list) or len(data) == 0:
-            print(f"⚠️ خطای Binance {symbol}")
             return None
         df = pd.DataFrame(data, columns=[
             "time", "open", "high", "low", "close", "volume",
@@ -228,8 +218,7 @@ def get_crypto_candles(symbol, interval):
         for col in ["open", "high", "low", "close"]:
             df[col] = df[col].astype(float)
         return df
-    except Exception as e:
-        print(f"❌ خطا در دریافت {symbol}: {e}")
+    except:
         return None
 
 # ---------- محاسبه OsMA ----------
@@ -274,7 +263,6 @@ def check_signal(symbol, df, interval, market):
         signal = "SELL"
 
     if signal:
-        print(f"🎯 سیگنال پیدا شد! {symbol} - {signal}")
         unit = get_unit(symbol)
         
         if symbol.endswith("USDT"):
@@ -310,7 +298,6 @@ def check_signal(symbol, df, interval, market):
                   and s["type"] == signal
                   and (now - datetime.strptime(s["time"], "%Y-%m-%d %H:%M")).total_seconds() < 900]
         if recent:
-            print(f"⏭️ سیگنال تکراری {symbol} رد شد")
             return
 
         market_name = "فارکس" if market == "FOREX" else "کریپتو"
@@ -379,7 +366,6 @@ def check_signal(symbol, df, interval, market):
 """ + footer()
 
         send_to_channel(msg)
-        print(f"✅ سیگنال {signal} - {symbol} ارسال شد")
 
 # ---------- بررسی نتایج ----------
 def check_results():
@@ -700,7 +686,7 @@ def weekly_report():
 
 # ---------- پیام آخر هفته ----------
 def weekend_message():
-    now_iran = datetime.utcnow() + timedelta(hours=3, minutes=30)
+    now_iran = datetime.now(timezone.utc) + timedelta(hours=3, minutes=30)
     msg = f"""🌙  پایان هفته معاملاتی
 ━━━━━━━━━━━━━━━━━━
 📅  امروز: جمعه
@@ -754,17 +740,28 @@ def process_telegram_updates():
                 user_name = msg["chat"].get("first_name", "Unknown")
 
                 if text == "/start":
-                    print(f"📩 پیام /start از {user_name} ({chat_id})")
                     users = load_users()
                     pending = load_pending()
 
                     if chat_id == ADMIN_ID:
                         send_to_admin("👑 خوش آمدی ادمین!\nبات آماده است.")
                     elif chat_id in users["approved"]:
-                        send_to_admin("✅ شما قبلاً تایید شده‌اید.")
+                        # کاربر تایید شده - لینک کانال رو بفرست
+                        try:
+                            bot.send_message(chat_id,
+                                f"✅ شما قبلاً تایید شده‌اید.\n\n"
+                                f"📎 لینک عضویت در کانال:\n{CHANNEL_INVITE_LINK}")
+                        except:
+                            pass
                     elif any(p["chat_id"] == chat_id for p in pending["pending"]):
-                        send_to_admin("⏳ درخواست شما در انتظار تایید ادمین است.")
+                        try:
+                            bot.send_message(chat_id,
+                                "⏳ درخواست شما در انتظار تایید ادمین است.\n"
+                                "لطفاً صبر کنید.")
+                        except:
+                            pass
                     else:
+                        # کاربر جدید
                         pending["pending"].append({
                             "chat_id": chat_id,
                             "name": user_name,
@@ -772,11 +769,13 @@ def process_telegram_updates():
                         })
                         save_pending(pending)
 
+                        # پیام خوش‌آمد
                         try:
                             bot.send_message(chat_id, WELCOME_MSG)
                         except:
                             pass
 
+                        # دکمه تایید/رد برای ادمین
                         keyboard = types.InlineKeyboardMarkup()
                         btn_yes = types.InlineKeyboardButton("✅ تایید", callback_data=f"approve_{chat_id}")
                         btn_no = types.InlineKeyboardButton("❌ رد", callback_data=f"reject_{chat_id}")
@@ -800,7 +799,6 @@ def process_telegram_updates():
 
                 if data_cb.startswith("approve_"):
                     target_id = data_cb.replace("approve_", "")
-                    print(f"✅ تایید کاربر {target_id}")
                     users = load_users()
                     if target_id not in users["approved"]:
                         users["approved"].append(target_id)
@@ -816,10 +814,16 @@ def process_telegram_updates():
                             chat_id=ADMIN_ID, message_id=cb["message"]["message_id"])
                     except:
                         pass
+                    
+                    # ارسال لینک کانال به کاربر
                     try:
-                        bot.send_message(target_id, "🎉 تایید شدید!\nاز این به بعد سیگنال‌ها در کانال ارسال می‌شود.")
-                    except:
-                        pass
+                        bot.send_message(target_id,
+                            f"🎉 تایید شدید!\n\n"
+                            f"📎 برای عضویت در کانال روی لینک زیر بزنید:\n"
+                            f"{CHANNEL_INVITE_LINK}\n\n"
+                            f"پس از عضویت، سیگنال‌ها را در کانال دریافت می‌کنید.")
+                    except Exception as e:
+                        print(f"خطا در ارسال لینک: {e}")
 
                 elif data_cb.startswith("reject_"):
                     target_id = data_cb.replace("reject_", "")
@@ -831,6 +835,11 @@ def process_telegram_updates():
                     try:
                         bot.edit_message_text(f"❌ کاربر {target_id} رد شد.",
                             chat_id=ADMIN_ID, message_id=cb["message"]["message_id"])
+                    except:
+                        pass
+                    try:
+                        bot.send_message(target_id,
+                            "❌ متاسفانه درخواست شما رد شد.")
                     except:
                         pass
 
@@ -856,28 +865,20 @@ if __name__ == "__main__":
     last_weekly_report = None
     last_weekend_msg = None
 
-    loop_count = 0
     while True:
         try:
-            loop_count += 1
             now = datetime.now()
-            now_iran = datetime.utcnow() + timedelta(hours=3, minutes=30)
-            
-            # لاگ هر ۱۰ حلقه (هر 5 دقیقه)
-            if loop_count % 10 == 0:
-                print(f"🔄 حلقه #{loop_count} | ساعت ایران: {now_iran.strftime('%H:%M:%S')}")
+            now_iran = datetime.now(timezone.utc) + timedelta(hours=3, minutes=30)
             
             process_telegram_updates()
             check_results()
 
             if is_trading_hours():
                 current_minute = now_iran.minute
-                
                 if current_minute in [0, 15, 30, 45]:
                     time_key = f"{now_iran.hour}_{current_minute}_{now_iran.day}"
                     if last_signal_check != time_key:
                         last_signal_check = time_key
-                        print(f"🔍 بررسی سیگنال‌ها در {now_iran.strftime('%H:%M')}...")
                         
                         for symbol in FOREX_SYMBOLS:
                             for interval in FOREX_INTERVALS:
