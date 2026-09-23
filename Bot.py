@@ -135,7 +135,9 @@ def send_to_admin(message, reply_markup=None):
 
 # ---------- ساعت مجاز ----------
 def is_trading_hours():
-    now_iran = datetime.now(timezone.utc) + timedelta(hours=3, minutes=30)
+    def is_trading_hours():
+    # تست: موقتاً همیشه True
+    return True
     hour = now_iran.hour
     weekday = now_iran.weekday()
     
