@@ -134,8 +134,7 @@ def send_to_admin(message, reply_markup=None):
         print(f"خطا ادمین: {e}")
 
 # ---------- ساعت مجاز ----------
-def is_trading_hours():
-    def is_trading_hours():
+def is_trading_hours(): 
     # تست: موقتاً همیشه True
     return True
     hour = now_iran.hour
