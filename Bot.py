@@ -4,16 +4,13 @@ import telebot
 from telebot import types
 import json
 import os
-import time
 from datetime import datetime, timedelta, timezone
-from flask import Flask
-from threading import Thread
 
 # ==================== تنظیمات ====================
 TELEGRAM_TOKEN = "8384433271:AAHSZRwKRV3LtSNwErubiN9Id2opTh1UDLc"
 ADMIN_ID = "979480591"
 CHANNEL_ID = "-1004458845744"
-CHANNEL_INVITE_LINK = "https://t.me/+92D1qsrJrzw1OTc8"  # 👈 لینک دعوت کانال
+CHANNEL_INVITE_LINK = "https://t.me/+92D1qsrJrzw1OTc8"
 TWELVEDATA_API_KEY = "7194fdf6808542bb8bf6bf61d7e7b5da"
 
 FOREX_SYMBOLS = [
@@ -35,6 +32,7 @@ CRYPTO_INTERVALS = ["15m"]
 DB_FILE = "signals_db.json"
 USERS_FILE = "users_db.json"
 PENDING_FILE = "pending_db.json"
+REPORT_FILE = "report_count.json"
 
 PIP_SIZE = {
     "EUR/USD": 0.0001, "GBP/USD": 0.0001, "AUD/USD": 0.0001,
@@ -51,21 +49,6 @@ ENTRY_FILTER_PIPS = 5
 # ==================================================
 
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
-
-# ---------- وب‌سرور برای Render ----------
-web_app = Flask('')
-
-@web_app.route('/')
-def home():
-    return "MiHi Btn Bot is alive!"
-
-def run_web():
-    web_app.run(host='0.0.0.0', port=10000)
-
-def keep_alive():
-    t = Thread(target=run_web)
-    t.daemon = True
-    t.start()
 
 # ---------- متن‌های آماده ----------
 def footer():
@@ -143,13 +126,13 @@ def send_to_channel(message):
     try:
         bot.send_message(CHANNEL_ID, message)
     except Exception as e:
-        print(f"خطا در ارسال به کانال: {e}")
+        print(f"خطا کانال: {e}")
 
 def send_to_admin(message, reply_markup=None):
     try:
         bot.send_message(ADMIN_ID, message, reply_markup=reply_markup)
     except Exception as e:
-        print(f"خطا در ارسال به ادمین: {e}")
+        print(f"خطا ادمین: {e}")
 
 # ---------- ساعت مجاز ----------
 def is_trading_hours():
@@ -157,14 +140,10 @@ def is_trading_hours():
     hour = now_iran.hour
     weekday = now_iran.weekday()
     
-    if weekday == 4 and hour >= 23:
-        return False
-    if weekday == 5:
-        return False
-    if weekday == 6 and hour < 3:
-        return False
-    if hour >= 22 or hour < 3:
-        return False
+    if weekday == 4 and hour >= 23: return False
+    if weekday == 5: return False
+    if weekday == 6 and hour < 3: return False
+    if hour >= 22 or hour < 3: return False
     return True
 
 # ---------- محاسبه پیپ/پوینت ----------
@@ -183,23 +162,18 @@ def get_unit(symbol):
 # ---------- دریافت کندل فارکس ----------
 def get_forex_candles(symbol, interval):
     url = "https://api.twelvedata.com/time_series"
-    params = {
-        "symbol": symbol, "interval": interval,
-        "outputsize": 200, "apikey": TWELVEDATA_API_KEY, "format": "JSON"
-    }
+    params = {"symbol": symbol, "interval": interval, "outputsize": 200, "apikey": TWELVEDATA_API_KEY, "format": "JSON"}
     try:
         r = requests.get(url, params=params, timeout=15)
         data = r.json()
-        if "values" not in data:
-            return None
+        if "values" not in data: return None
         df = pd.DataFrame(data["values"])
         df["datetime"] = pd.to_datetime(df["datetime"])
         df = df.sort_values("datetime").reset_index(drop=True)
         for col in ["open", "high", "low", "close"]:
             df[col] = df[col].astype(float)
         return df
-    except:
-        return None
+    except: return None
 
 # ---------- دریافت کندل کریپتو ----------
 def get_crypto_candles(symbol, interval):
@@ -208,18 +182,13 @@ def get_crypto_candles(symbol, interval):
     try:
         r = requests.get(url, params=params, timeout=15)
         data = r.json()
-        if not isinstance(data, list) or len(data) == 0:
-            return None
-        df = pd.DataFrame(data, columns=[
-            "time", "open", "high", "low", "close", "volume",
-            "close_time", "qav", "trades", "tbb", "tbq", "ignore"
-        ])
+        if not isinstance(data, list) or len(data) == 0: return None
+        df = pd.DataFrame(data, columns=["time", "open", "high", "low", "close", "volume", "close_time", "qav", "trades", "tbb", "tbq", "ignore"])
         df["datetime"] = pd.to_datetime(df["time"], unit="ms")
         for col in ["open", "high", "low", "close"]:
             df[col] = df[col].astype(float)
         return df
-    except:
-        return None
+    except: return None
 
 # ---------- محاسبه OsMA ----------
 def calculate_osma(df, fast, slow, signal):
@@ -232,19 +201,17 @@ def calculate_osma(df, fast, slow, signal):
 # ---------- تحلیل خودکار ----------
 def generate_analysis(symbol, signal, price, entry, sl, tp1):
     if signal == "BUY":
-        analysis = f"قیمت در ناحیه اشباع فروش قرار دارد.\n"
-        analysis += f"احتمال بازگشت صعودی به سمت مقاومت وجود دارد.\n"
-        analysis += f"در صورت تثبیت قیمت بالای {entry:.5f}، ورود معتبر است."
+        return (f"قیمت در ناحیه اشباع فروش قرار دارد.\n"
+                f"احتمال بازگشت صعودی به سمت مقاومت وجود دارد.\n"
+                f"در صورت تثبیت قیمت بالای {entry:.5f}، ورود معتبر است.")
     else:
-        analysis = f"قیمت در ناحیه اشباع خرید قرار دارد.\n"
-        analysis += f"احتمال اصلاح نزولی به سمت حمایت وجود دارد.\n"
-        analysis += f"در صورت تثبیت قیمت زیر {entry:.5f}، ورود معتبر است."
-    return analysis
+        return (f"قیمت در ناحیه اشباع خرید قرار دارد.\n"
+                f"احتمال اصلاح نزولی به سمت حمایت وجود دارد.\n"
+                f"در صورت تثبیت قیمت زیر {entry:.5f}، ورود معتبر است.")
 
-# ---------- بررسی سیگنال ----------
+# ---------- بررسی سیگنال (شرط‌ها شل‌تر شد) ----------
 def check_signal(symbol, df, interval, market):
-    if df is None or len(df) < 100:
-        return
+    if df is None or len(df) < 100: return
 
     osma_slow = calculate_osma(df, 24, 52, 93)
     osma_fast = calculate_osma(df, 8, 17, 31)
@@ -257,9 +224,11 @@ def check_signal(symbol, df, interval, market):
     price = df["close"].iloc[-1]
     signal = None
 
-    if last_slow < 0 and last_fast < 0 and last_fast > prev_fast and last_slow > prev_slow:
+    # شرط خرید: فقط هم‌جهتی صعودی (ساده‌تر شده)
+    if last_fast > prev_fast and last_slow > prev_slow and last_slow < 0:
         signal = "BUY"
-    if last_slow > 0 and last_fast > 0 and last_fast < prev_fast and last_slow < prev_slow:
+    # شرط فروش: فقط هم‌جهتی نزولی (ساده‌تر شده)
+    if last_fast < prev_fast and last_slow < prev_slow and last_slow > 0:
         signal = "SELL"
 
     if signal:
@@ -293,36 +262,20 @@ def check_signal(symbol, df, interval, market):
         now = datetime.now()
         current_time = now.strftime("%Y-%m-%d %H:%M")
         
-        recent = [s for s in db["signals"]
-                  if s["symbol"] == symbol
-                  and s["type"] == signal
-                  and (now - datetime.strptime(s["time"], "%Y-%m-%d %H:%M")).total_seconds() < 900]
-        if recent:
-            return
+        recent = [s for s in db["signals"] if s["symbol"] == symbol and s["type"] == signal and (now - datetime.strptime(s["time"], "%Y-%m-%d %H:%M")).total_seconds() < 900]
+        if recent: return
 
         market_name = "فارکس" if market == "FOREX" else "کریپتو"
         analysis = generate_analysis(symbol, signal, price, entry, sl, tp1)
 
         signal_data = {
             "time": current_time,
-            "expire_time": (now + timedelta(hours=2)).strftime("%Y-%m-%d %H:%M"),
-            "symbol": symbol,
-            "market": market_name,
-            "type": signal,
-            "price": round(price, 5),
-            "entry": round(entry, 5),
-            "sl": round(sl, 5),
-            "tp1": round(tp1, 5),
-            "tp2": round(tp2, 5),
-            "tp3": round(tp3, 5),
-            "diff_tp1": round(diff_tp1, 1),
-            "diff_tp2": round(diff_tp2, 1),
-            "diff_tp3": round(diff_tp3, 1),
-            "diff_sl": round(diff_sl, 1),
-            "unit": unit,
-            "tp1_hit": False,
-            "tp2_hit": False,
-            "tp3_hit": False,
+            "symbol": symbol, "market": market_name, "type": signal,
+            "price": round(price, 5), "entry": round(entry, 5), "sl": round(sl, 5),
+            "tp1": round(tp1, 5), "tp2": round(tp2, 5), "tp3": round(tp3, 5),
+            "diff_tp1": round(diff_tp1, 1), "diff_tp2": round(diff_tp2, 1),
+            "diff_tp3": round(diff_tp3, 1), "diff_sl": round(diff_sl, 1),
+            "unit": unit, "tp1_hit": False, "tp2_hit": False, "tp3_hit": False,
             "status": "active"
         }
         db["signals"].append(signal_data)
@@ -340,284 +293,169 @@ def check_signal(symbol, df, interval, market):
 ━━━━━━━━━━━━━━━━━━
 🎯  اهداف سود:
 
-🥇  TP1 (محافظه‌کار):
-     {tp1:.5f}  |  +{diff_tp1:.1f} {unit}
-
-🥈  TP2 (متعادل):
-     {tp2:.5f}  |  +{diff_tp2:.1f} {unit}
-
-🥉  TP3 (تهاجمی):
-     {tp3:.5f}  |  +{diff_tp3:.1f} {unit}
+🥇  TP1: {tp1:.5f}  |  +{diff_tp1:.1f} {unit}
+🥈  TP2: {tp2:.5f}  |  +{diff_tp2:.1f} {unit}
+🥉  TP3: {tp3:.5f}  |  +{diff_tp3:.1f} {unit}
 ━━━━━━━━━━━━━━━━━━
 📖  تحلیل:
-
 {analysis}
 
-💡  توصیه معاملاتی:
+💡  توصیه:
     ▫️ صبر کنید قیمت به Entry برسد
-    ▫️ سپس وارد شوید
-    ▫️ محافظه‌کار: TP1
-    ▫️ متعادل: TP2
-    ▫️ تهاجمی: TP3
-    ▫️ پس از TP1، حد ضرر را به 
-       نقطه ورود منتقل کنید.
+    ▫️ محافظه‌کار: TP1 | متعادل: TP2 | تهاجمی: TP3
+    ▫️ پس از TP1، SL را به نقطه ورود منتقل کنید.
 
 🕐  زمان: {current_time}
 """ + footer()
 
         send_to_channel(msg)
 
-# ---------- بررسی نتایج ----------
+# ---------- بررسی نتایج و اعلام وضعیت ----------
 def check_results():
     db = load_db()
     changed = False
     now = datetime.now()
 
     for s in db["signals"]:
-        if s["status"] != "active":
-            continue
-
-        if "expire_time" in s:
-            try:
-                expire = datetime.strptime(s["expire_time"], "%Y-%m-%d %H:%M")
-                if now > expire:
-                    s["status"] = "expired"
-                    changed = True
-                    msg = f"""⏰  سیگنال منقضی شد
-━━━━━━━━━━━━━━━━━━
-📊  نماد: {s['symbol']}
-🔔  نوع سیگنال: {s['type']}
-
-⏳  مدت اعتبار: ۲ ساعت
-📊  وضعیت: بدون تغییر قابل توجه
-
-💡  توصیه:
-    ▫️ به دنبال فرصت بعدی باشید
-
-🕐  زمان: {now.strftime('%Y-%m-%d %H:%M')}
-""" + footer()
-                    send_to_channel(msg)
-                    continue
-            except:
-                pass
+        if s["status"] != "active": continue
 
         if s["market"] == "فارکس":
             df = get_forex_candles(s["symbol"], "15min")
         else:
             df = get_crypto_candles(s["symbol"], "15m")
 
-        if df is None or len(df) == 0:
-            continue
+        if df is None or len(df) == 0: continue
 
         current_price = df["close"].iloc[-1]
         unit = s.get("unit", "پیپ")
 
+        # چک TP/SL
         if s["type"] == "BUY":
             if not s["tp3_hit"] and current_price >= s["tp3"]:
-                s["tp3_hit"] = True
-                s["status"] = "win"
-                changed = True
-                msg = f"""🏆  هدف سوم (TP3) فعال شد
-━━━━━━━━━━━━━━━━━━
-📊  نماد: {s['symbol']}
-🔔  نوع سیگنال: {s['type']}
-
-💰  سود: +{s['diff_tp3']} {unit}
-🎯 قیمت: {s['tp3']:.5f}
-
-🎉  تبریک! به هدف نهایی رسیدید.
-
-🕐  زمان: {now.strftime('%Y-%m-%d %H:%M')}
-""" + footer()
-                send_to_channel(msg)
+                s["tp3_hit"] = True; s["status"] = "win"; changed = True
+                send_to_channel(f"🏆 TP3 فعال شد!\n📊 {s['symbol']}\n💰 سود: +{s['diff_tp3']} {unit}\n🎉 تبریک!" + footer())
             elif not s["tp2_hit"] and current_price >= s["tp2"]:
-                s["tp2_hit"] = True
-                changed = True
-                msg = f"""✅  هدف دوم (TP2) فعال شد
-━━━━━━━━━━━━━━━━━━
-📊  نماد: {s['symbol']}
-🔔  نوع سیگنال: {s['type']}
-
-💰  سود: +{s['diff_tp2']} {unit}
-🎯 قیمت: {s['tp2']:.5f}
-
-💡  توصیه:
-    ▫️ سود خوبی کسب کردید
-    ▫️ می‌توانید ادامه دهید 
-       یا سیو سود کنید
-
-🕐  زمان: {now.strftime('%Y-%m-%d %H:%M')}
-""" + footer()
-                send_to_channel(msg)
+                s["tp2_hit"] = True; changed = True
+                send_to_channel(f"✅ TP2 فعال شد!\n📊 {s['symbol']}\n💰 سود: +{s['diff_tp2']} {unit}" + footer())
             elif not s["tp1_hit"] and current_price >= s["tp1"]:
-                s["tp1_hit"] = True
-                changed = True
-                msg = f"""✅  هدف اول (TP1) فعال شد
-━━━━━━━━━━━━━━━━━━
-📊  نماد: {s['symbol']}
-🔔  نوع سیگنال: {s['type']}
-
-💰  سود: +{s['diff_tp1']} {unit}
-🎯 قیمت: {s['tp1']:.5f}
-
-💡  توصیه:
-    ▫️ می‌توانید سود خود را 
-       سیو کنید
-    ▫️ یا برای TP2 صبر کنید
-    ▫️ حد ضرر را به نقطه ورود 
-       منتقل کنید (ریسک فری)
-
-🕐  زمان: {now.strftime('%Y-%m-%d %H:%M')}
-""" + footer()
-                send_to_channel(msg)
+                s["tp1_hit"] = True; changed = True
+                send_to_channel(f"✅ TP1 فعال شد!\n📊 {s['symbol']}\n💰 سود: +{s['diff_tp1']} {unit}" + footer())
             elif current_price <= s["sl"]:
-                s["status"] = "loss"
-                changed = True
-                msg = f"""❌  حد ضرر فعال شد
-━━━━━━━━━━━━━━━━━━
-📊  نماد: {s['symbol']}
-🔔  نوع سیگنال: {s['type']}
-
-📉  ضرر: -{s['diff_sl']} {unit}
-🛑 قیمت: {s['sl']:.5f}
-
-💡  توصیه:
-    ▫️ ضرر بخشی از معامله‌گری است
-    ▫️ مدیریت سرمایه را رعایت کنید
-    ▫️ منتظر سیگنال بعدی باشید
-
-🕐  زمان: {now.strftime('%Y-%m-%d %H:%M')}
-""" + footer()
-                send_to_channel(msg)
+                s["status"] = "loss"; changed = True
+                send_to_channel(f"❌ SL فعال شد!\n📊 {s['symbol']}\n📉 ضرر: -{s['diff_sl']} {unit}" + footer())
         else:
             if not s["tp3_hit"] and current_price <= s["tp3"]:
-                s["tp3_hit"] = True
-                s["status"] = "win"
-                changed = True
-                msg = f"""🏆  هدف سوم (TP3) فعال شد
-━━━━━━━━━━━━━━━━━━
-📊  نماد: {s['symbol']}
-🔔  نوع سیگنال: {s['type']}
-
-💰  سود: +{s['diff_tp3']} {unit}
-🎯 قیمت: {s['tp3']:.5f}
-
-🎉  تبریک! به هدف نهایی رسیدید.
-
-🕐  زمان: {now.strftime('%Y-%m-%d %H:%M')}
-""" + footer()
-                send_to_channel(msg)
+                s["tp3_hit"] = True; s["status"] = "win"; changed = True
+                send_to_channel(f"🏆 TP3 فعال شد!\n📊 {s['symbol']}\n💰 سود: +{s['diff_tp3']} {unit}" + footer())
             elif not s["tp2_hit"] and current_price <= s["tp2"]:
-                s["tp2_hit"] = True
-                changed = True
-                msg = f"""✅  هدف دوم (TP2) فعال شد
-━━━━━━━━━━━━━━━━━━
-📊  نماد: {s['symbol']}
-🔔  نوع سیگنال: {s['type']}
-
-💰  سود: +{s['diff_tp2']} {unit}
-🎯 قیمت: {s['tp2']:.5f}
-
-💡  توصیه:
-    ▫️ سود خوبی کسب کردید
-    ▫️ می‌توانید ادامه دهید 
-       یا سیو سود کنید
-
-🕐  زمان: {now.strftime('%Y-%m-%d %H:%M')}
-""" + footer()
-                send_to_channel(msg)
+                s["tp2_hit"] = True; changed = True
+                send_to_channel(f"✅ TP2 فعال شد!\n📊 {s['symbol']}\n💰 سود: +{s['diff_tp2']} {unit}" + footer())
             elif not s["tp1_hit"] and current_price <= s["tp1"]:
-                s["tp1_hit"] = True
-                changed = True
-                msg = f"""✅  هدف اول (TP1) فعال شد
-━━━━━━━━━━━━━━━━━━
-📊  نماد: {s['symbol']}
-🔔  نوع سیگنال: {s['type']}
-
-💰  سود: +{s['diff_tp1']} {unit}
-🎯 قیمت: {s['tp1']:.5f}
-
-💡  توصیه:
-    ▫️ می‌توانید سود خود را 
-       سیو کنید
-    ▫️ یا برای TP2 صبر کنید
-    ▫️ حد ضرر را به نقطه ورود 
-       منتقل کنید (ریسک فری)
-
-🕐  زمان: {now.strftime('%Y-%m-%d %H:%M')}
-""" + footer()
-                send_to_channel(msg)
+                s["tp1_hit"] = True; changed = True
+                send_to_channel(f"✅ TP1 فعال شد!\n📊 {s['symbol']}\n💰 سود: +{s['diff_tp1']} {unit}" + footer())
             elif current_price >= s["sl"]:
-                s["status"] = "loss"
-                changed = True
-                msg = f"""❌  حد ضرر فعال شد
-━━━━━━━━━━━━━━━━━━
-📊  نماد: {s['symbol']}
-🔔  نوع سیگنال: {s['type']}
-
-📉  ضرر: -{s['diff_sl']} {unit}
-🛑 قیمت: {s['sl']:.5f}
-
-💡  توصیه:
-    ▫️ ضرر بخشی از معامله‌گری است
-    ▫️ مدیریت سرمایه را رعایت کنید
-    ▫️ منتظر سیگنال بعدی باشید
-
-🕐  زمان: {now.strftime('%Y-%m-%d %H:%M')}
-""" + footer()
-                send_to_channel(msg)
+                s["status"] = "loss"; changed = True
+                send_to_channel(f"❌ SL فعال شد!\n📊 {s['symbol']}\n📉 ضرر: -{s['diff_sl']} {unit}" + footer())
 
     if changed:
         save_db(db)
+
+# ---------- اعلام وضعیت سیگنال‌های باز (هر ۱ ساعت) ----------
+def open_positions_report():
+    db = load_db()
+    active = [s for s in db["signals"] if s["status"] == "active"]
+    
+    if not active:
+        return
+    
+    msg = "📋 وضعیت پوزیشن‌های باز:\n━━━━━━━━━━━━━━━━━━\n"
+    
+    for s in active[-10:]:
+        if s["market"] == "فارکس":
+            df = get_forex_candles(s["symbol"], "15min")
+        else:
+            df = get_crypto_candles(s["symbol"], "15m")
+        
+        if df is None: continue
+        
+        current = df["close"].iloc[-1]
+        unit = s.get("unit", "پیپ")
+        entry = s["entry"]
+        
+        if s["type"] == "BUY":
+            pnl = (current - entry) / entry * 100
+        else:
+            pnl = (entry - current) / entry * 100
+        
+        status_emoji = "🟢" if pnl > 0 else "🔴"
+        
+        # وضعیت TP
+        tp_status = "TP1 ✅" if s.get("tp1_hit") else "TP1 ⏳"
+        if s.get("tp2_hit"): tp_status = "TP2 ✅"
+        if s.get("tp3_hit"): tp_status = "TP3 ✅"
+        
+        msg += f"{status_emoji} {s['symbol']} ({s['type']})\n"
+        msg += f"   ورود: {entry:.5f} | فعلی: {current:.5f}\n"
+        msg += f"   سود/ضرر: {pnl:+.2f}%\n"
+        msg += f"   وضعیت: {tp_status}\n"
+        msg += f"   SL: {s['sl']:.5f} | TP1: {s['tp1']:.5f}\n\n"
+    
+    msg += "💡 توصیه: پوزیشن‌های در سود را مدیریت کنید."
+    msg += footer()
+    
+    send_to_channel(msg)
+
+# ---------- گزارش عملکرد هر ۱۰ دقیقه برای اونر ----------
+def owner_report():
+    db = load_db()
+    now = datetime.now()
+    today = now.strftime("%Y-%m-%d")
+    
+    today_signals = [s for s in db["signals"] if s["time"].startswith(today)]
+    wins = [s for s in today_signals if s["status"] == "win"]
+    losses = [s for s in today_signals if s["status"] == "loss"]
+    active = [s for s in today_signals if s["status"] == "active"]
+    
+    total_closed = len(wins) + len(losses)
+    win_rate = (len(wins) / total_closed * 100) if total_closed > 0 else 0
+    
+    total_win = sum(s.get("diff_tp3" if s.get("tp3_hit") else "diff_tp2" if s.get("tp2_hit") else "diff_tp1", 0) for s in wins)
+    total_loss = sum(s.get("diff_sl", 0) for s in losses)
+    
+    msg = f"""📊 گزارش عملکرد (هر ۱۰ دقیقه)
+🕐 {now.strftime('%H:%M')}
+━━━━━━━━━━━━━━━━━━
+🔔 امروز: {len(today_signals)} سیگنال
+✅ برد: {len(wins)} | ❌ باخت: {len(losses)}
+⏳ فعال: {len(active)}
+📈 نرخ موفقیت: {win_rate:.1f}%
+💰 سود: +{total_win:.1f} | ضرر: -{total_loss:.1f}
+📊 خالص: {total_win - total_loss:+.1f}
+"""
+    send_to_admin(msg)
 
 # ---------- گزارش روزانه ----------
 def daily_report():
     db = load_db()
     today = datetime.now().strftime("%Y-%m-%d")
     today_signals = [s for s in db["signals"] if s["time"].startswith(today)]
-
     wins = [s for s in today_signals if s["status"] == "win"]
     losses = [s for s in today_signals if s["status"] == "loss"]
     active = [s for s in today_signals if s["status"] == "active"]
-    expired = [s for s in today_signals if s["status"] == "expired"]
-
     total_closed = len(wins) + len(losses)
     win_rate = (len(wins) / total_closed * 100) if total_closed > 0 else 0
-
-    total_pip_win = 0
-    for s in wins:
-        if s.get("tp3_hit"):
-            total_pip_win += s.get("diff_tp3", 0)
-        elif s.get("tp2_hit"):
-            total_pip_win += s.get("diff_tp2", 0)
-        elif s.get("tp1_hit"):
-            total_pip_win += s.get("diff_tp1", 0)
-
-    total_pip_loss = sum(s.get("diff_sl", 0) for s in losses)
-    net_pip = total_pip_win - total_pip_loss
-
-    forex_count = len([s for s in today_signals if s["market"] == "فارکس"])
-    crypto_count = len([s for s in today_signals if s["market"] == "کریپتو"])
-
-    msg = f"""📊  گزارش روزانه 
-📅  تاریخ: {today}
+    total_win = sum(s.get("diff_tp3" if s.get("tp3_hit") else "diff_tp2" if s.get("tp2_hit") else "diff_tp1", 0) for s in wins)
+    total_loss = sum(s.get("diff_sl", 0) for s in losses)
+    
+    msg = f"""📊 گزارش روزانه 
+📅 {today}
 ━━━━━━━━━━━━━━━━━━
-🔔  کل سیگنال‌ها: {len(today_signals)}
-    💱 فارکس: {forex_count}
-    🪙 کریپتو: {crypto_count}
-
-📈  نتایج:
-    ✅ سود : {len(wins)}
-    ❌ ضرر : {len(losses)}
-    ⏳ فعال: {len(active)}
-    ⏰ منقضی: {len(expired)}
-
-💰  سود و ضرر:
-    ✅ سود کل: +{total_pip_win:.1f}
-    ❌ ضرر کل: -{total_pip_loss:.1f}
-    📊 خالص: {net_pip:+.1f}
-
-🎯  نرخ موفقیت: {win_rate:.1f}%
+🔔 کل: {len(today_signals)}
+✅ سود: {len(wins)} | ❌ ضرر: {len(losses)} | ⏳ فعال: {len(active)}
+💰 سود کل: +{total_win:.1f}
+❌ ضرر کل: -{total_loss:.1f}
+📊 خالص: {total_win - total_loss:+.1f}
+🎯 نرخ موفقیت: {win_rate:.1f}%
 """ + footer()
     send_to_channel(msg)
 
@@ -626,89 +464,36 @@ def weekly_report():
     db = load_db()
     now = datetime.now()
     week_ago = now - timedelta(days=7)
-    
     week_signals = []
     for s in db["signals"]:
         try:
             s_time = datetime.strptime(s["time"], "%Y-%m-%d %H:%M")
-            if s_time >= week_ago:
-                week_signals.append(s)
-        except:
-            pass
-
+            if s_time >= week_ago: week_signals.append(s)
+        except: pass
     wins = [s for s in week_signals if s["status"] == "win"]
     losses = [s for s in week_signals if s["status"] == "loss"]
-    active = [s for s in week_signals if s["status"] == "active"]
-    expired = [s for s in week_signals if s["status"] == "expired"]
-
     total_closed = len(wins) + len(losses)
     win_rate = (len(wins) / total_closed * 100) if total_closed > 0 else 0
-
-    total_pip_win = 0
-    for s in wins:
-        if s.get("tp3_hit"):
-            total_pip_win += s.get("diff_tp3", 0)
-        elif s.get("tp2_hit"):
-            total_pip_win += s.get("diff_tp2", 0)
-        elif s.get("tp1_hit"):
-            total_pip_win += s.get("diff_tp1", 0)
-
-    total_pip_loss = sum(s.get("diff_sl", 0) for s in losses)
-    net_pip = total_pip_win - total_pip_loss
-
-    forex_count = len([s for s in week_signals if s["market"] == "فارکس"])
-    crypto_count = len([s for s in week_signals if s["market"] == "کریپتو"])
-
-    start_date = week_ago.strftime("%Y-%m-%d")
-    end_date = now.strftime("%Y-%m-%d")
-
-    msg = f"""📊  گزارش هفتگی 
-📅  از {start_date} تا {end_date}
+    total_win = sum(s.get("diff_tp3" if s.get("tp3_hit") else "diff_tp2" if s.get("tp2_hit") else "diff_tp1", 0) for s in wins)
+    total_loss = sum(s.get("diff_sl", 0) for s in losses)
+    
+    msg = f"""📊 گزارش هفتگی 
+📅 {week_ago.strftime('%Y-%m-%d')} تا {now.strftime('%Y-%m-%d')}
 ━━━━━━━━━━━━━━━━━━
-🔔  کل سیگنال‌های هفته: {len(week_signals)}
-    💱 فارکس: {forex_count}
-    🪙 کریپتو: {crypto_count}
-
-📈  نتایج:
-    ✅ سود: {len(wins)}
-    ❌ ضرر: {len(losses)}
-    ⏳ فعال: {len(active)}
-    ⏰ منقضی: {len(expired)}
-
-💰  سود و ضرر:
-    ✅ سود کل: +{total_pip_win:.1f}
-    ❌ ضرر کل: -{total_pip_loss:.1f}
-    📊 خالص: {net_pip:+.1f}
-
-🎯  نرخ موفقیت: {win_rate:.1f}%
+🔔 کل: {len(week_signals)}
+✅ سود: {len(wins)} | ❌ ضرر: {len(losses)}
+💰 خالص: {total_win - total_loss:+.1f}
+🎯 نرخ موفقیت: {win_rate:.1f}%
 """ + footer()
     send_to_channel(msg)
 
 # ---------- پیام آخر هفته ----------
 def weekend_message():
-    now_iran = datetime.now(timezone.utc) + timedelta(hours=3, minutes=30)
-    msg = f"""🌙  پایان هفته معاملاتی
+    msg = f"""🌙 پایان هفته معاملاتی
 ━━━━━━━━━━━━━━━━━━
-📅  امروز: جمعه
-⏰  زمان: {now_iran.strftime('%H:%M')}
-
-🏦  بازارها در حال بسته شدن هستند.
-
-⏳  بازار از الان تا 
-    دوشنبه ساعت 03:00 بسته است.
-
-💡  توصیه‌های مهم:
-    ▫️ پوزیشن‌های باز را مدیریت کنید
-    ▫️ سودها را سیو کنید
-    ▫️ ریسک‌های اضافی را ببندید
-    ▫️ استراحت کنید و انرژی بگیرید
-
-📊  هفته‌ی پر از سیگنال و تحلیل 
-    در انتظار شماست.
-
-🌟  هفته‌ای پر از سود و موفقیت 
-    برایتان آرزو می‌کنیم.
-
+⏳ بازار تا دوشنبه 03:00 بسته است.
+💡 پوزیشن‌های باز را مدیریت کنید.
+🌟 هفته‌ای پر از سود برایتان آرزو می‌کنیم.
 """ + footer()
     send_to_channel(msg)
 
@@ -726,8 +511,7 @@ def process_telegram_updates():
     try:
         r = requests.get(url, params=params, timeout=20)
         data = r.json()
-        if not data.get("ok"):
-            return
+        if not data.get("ok"): return
         updates = data.get("result", [])
         for u in updates:
             update_id = u["update_id"]
@@ -744,49 +528,27 @@ def process_telegram_updates():
                     pending = load_pending()
 
                     if chat_id == ADMIN_ID:
-                        send_to_admin("👑 خوش آمدی ادمین!\nبات آماده است.")
+                        send_to_admin("👑 خوش آمدی ادمین!")
                     elif chat_id in users["approved"]:
-                        # کاربر تایید شده - لینک کانال رو بفرست
                         try:
-                            bot.send_message(chat_id,
-                                f"✅ شما قبلاً تایید شده‌اید.\n\n"
-                                f"📎 لینک عضویت در کانال:\n{CHANNEL_INVITE_LINK}")
-                        except:
-                            pass
+                            bot.send_message(chat_id, f"✅ شما قبلاً تایید شده‌اید.\n\n📎 لینک کانال:\n{CHANNEL_INVITE_LINK}")
+                        except: pass
                     elif any(p["chat_id"] == chat_id for p in pending["pending"]):
                         try:
-                            bot.send_message(chat_id,
-                                "⏳ درخواست شما در انتظار تایید ادمین است.\n"
-                                "لطفاً صبر کنید.")
-                        except:
-                            pass
+                            bot.send_message(chat_id, "⏳ درخواست شما در انتظار تایید ادمین است.")
+                        except: pass
                     else:
-                        # کاربر جدید
-                        pending["pending"].append({
-                            "chat_id": chat_id,
-                            "name": user_name,
-                            "time": datetime.now().strftime("%Y-%m-%d %H:%M")
-                        })
+                        pending["pending"].append({"chat_id": chat_id, "name": user_name, "time": datetime.now().strftime("%Y-%m-%d %H:%M")})
                         save_pending(pending)
+                        try: bot.send_message(chat_id, WELCOME_MSG)
+                        except: pass
 
-                        # پیام خوش‌آمد
-                        try:
-                            bot.send_message(chat_id, WELCOME_MSG)
-                        except:
-                            pass
-
-                        # دکمه تایید/رد برای ادمین
                         keyboard = types.InlineKeyboardMarkup()
                         btn_yes = types.InlineKeyboardButton("✅ تایید", callback_data=f"approve_{chat_id}")
                         btn_no = types.InlineKeyboardButton("❌ رد", callback_data=f"reject_{chat_id}")
                         keyboard.add(btn_yes, btn_no)
 
-                        send_to_admin(
-                            f"🔔 درخواست جدید:\n\n"
-                            f"👤 نام: {user_name}\n"
-                            f"🆔 Chat ID: {chat_id}\n"
-                            f"🕐 زمان: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
-                            reply_markup=keyboard)
+                        send_to_admin(f"🔔 درخواست جدید:\n👤 {user_name}\n🆔 {chat_id}\n🕐 {datetime.now().strftime('%H:%M')}", reply_markup=keyboard)
 
             if "callback_query" in u:
                 cb = u["callback_query"]
@@ -794,8 +556,7 @@ def process_telegram_updates():
                 data_cb = cb["data"]
                 admin_chat_id = str(cb["from"]["id"])
 
-                if admin_chat_id != ADMIN_ID:
-                    continue
+                if admin_chat_id != ADMIN_ID: continue
 
                 if data_cb.startswith("approve_"):
                     target_id = data_cb.replace("approve_", "")
@@ -803,119 +564,91 @@ def process_telegram_updates():
                     if target_id not in users["approved"]:
                         users["approved"].append(target_id)
                         save_users(users)
-
                     pending = load_pending()
                     pending["pending"] = [p for p in pending["pending"] if p["chat_id"] != target_id]
                     save_pending(pending)
-
                     bot.answer_callback_query(cb_id, "✅ تایید شد")
                     try:
-                        bot.edit_message_text(f"✅ کاربر {target_id} تایید شد.",
-                            chat_id=ADMIN_ID, message_id=cb["message"]["message_id"])
-                    except:
-                        pass
-                    
-                    # ارسال لینک کانال به کاربر
+                        bot.edit_message_text(f"✅ کاربر {target_id} تایید شد.", chat_id=ADMIN_ID, message_id=cb["message"]["message_id"])
+                    except: pass
                     try:
-                        bot.send_message(target_id,
-                            f"🎉 تایید شدید!\n\n"
-                            f"📎 برای عضویت در کانال روی لینک زیر بزنید:\n"
-                            f"{CHANNEL_INVITE_LINK}\n\n"
-                            f"پس از عضویت، سیگنال‌ها را در کانال دریافت می‌کنید.")
-                    except Exception as e:
-                        print(f"خطا در ارسال لینک: {e}")
+                        bot.send_message(target_id, f"🎉 تایید شدید!\n\n📎 لینک کانال:\n{CHANNEL_INVITE_LINK}")
+                    except: pass
 
                 elif data_cb.startswith("reject_"):
                     target_id = data_cb.replace("reject_", "")
                     pending = load_pending()
                     pending["pending"] = [p for p in pending["pending"] if p["chat_id"] != target_id]
                     save_pending(pending)
-
                     bot.answer_callback_query(cb_id, "❌ رد شد")
                     try:
-                        bot.edit_message_text(f"❌ کاربر {target_id} رد شد.",
-                            chat_id=ADMIN_ID, message_id=cb["message"]["message_id"])
-                    except:
-                        pass
-                    try:
-                        bot.send_message(target_id,
-                            "❌ متاسفانه درخواست شما رد شد.")
-                    except:
-                        pass
+                        bot.edit_message_text(f"❌ کاربر {target_id} رد شد.", chat_id=ADMIN_ID, message_id=cb["message"]["message_id"])
+                    except: pass
 
         with open(offset_file, "w") as f:
             f.write(str(offset))
-
     except Exception as e:
-        print(f"خطا در پردازش آپدیت‌ها: {e}")
+        print(f"خطا آپدیت: {e}")
 
-# ---------- حلقه بی‌پایان ----------
+# ---------- بررسی اینکه آیا این دقیقه ۱۰ هست؟ ----------
+def is_10_min():
+    now_iran = datetime.now(timezone.utc) + timedelta(hours=3, minutes=30)
+    return now_iran.minute % 10 == 0
+
+# ---------- بررسی اینکه آیا این ساعت ۱ هست؟ ----------
+def is_1_hour():
+    now_iran = datetime.now(timezone.utc) + timedelta(hours=3, minutes=30)
+    return now_iran.minute == 0
+
+# ---------- اجرا (GitHub Actions - یک بار اجرا) ----------
 if __name__ == "__main__":
-    print("🚀 بات ۲۴ ساعته MiHi Btn فعال شد...")
+    print("🚀 اجرای بات...")
     
-    keep_alive()
+    # پردازش پیام‌های تلگرام
+    process_telegram_updates()
     
-    try:
-        send_to_channel("✅ بات MiHi Btn فعال شد و آماده ارسال سیگنال است.")
-    except:
-        pass
+    # بررسی نتایج
+    check_results()
+    
+    # بررسی سیگنال‌های جدید (فقط در ساعات مجاز)
+    if is_trading_hours():
+        # فارکس
+        for symbol in FOREX_SYMBOLS:
+            for interval in FOREX_INTERVALS:
+                try:
+                    df = get_forex_candles(symbol, interval)
+                    check_signal(symbol, df, interval, "FOREX")
+                except Exception as e:
+                    print(f"خطا {symbol}: {e}")
 
-    last_signal_check = None
-    last_daily_report = None
-    last_weekly_report = None
-    last_weekend_msg = None
+        # کریپتو
+        for symbol in CRYPTO_SYMBOLS:
+            for interval in CRYPTO_INTERVALS:
+                try:
+                    df = get_crypto_candles(symbol, interval)
+                    check_signal(symbol, df, interval, "CRYPTO")
+                except Exception as e:
+                    print(f"خطا {symbol}: {e}")
 
-    while True:
-        try:
-            now = datetime.now()
-            now_iran = datetime.now(timezone.utc) + timedelta(hours=3, minutes=30)
-            
-            process_telegram_updates()
-            check_results()
-
-            if is_trading_hours():
-                current_minute = now_iran.minute
-                if current_minute in [0, 15, 30, 45]:
-                    time_key = f"{now_iran.hour}_{current_minute}_{now_iran.day}"
-                    if last_signal_check != time_key:
-                        last_signal_check = time_key
-                        
-                        for symbol in FOREX_SYMBOLS:
-                            for interval in FOREX_INTERVALS:
-                                try:
-                                    df = get_forex_candles(symbol, interval)
-                                    check_signal(symbol, df, interval, "FOREX")
-                                except Exception as e:
-                                    print(f"خطا {symbol}: {e}")
-
-                        for symbol in CRYPTO_SYMBOLS:
-                            for interval in CRYPTO_INTERVALS:
-                                try:
-                                    df = get_crypto_candles(symbol, interval)
-                                    check_signal(symbol, df, interval, "CRYPTO")
-                                except Exception as e:
-                                    print(f"خطا {symbol}: {e}")
-
-            if now_iran.hour == 22 and now_iran.minute < 5:
-                day_key = now_iran.strftime("%Y-%m-%d")
-                if last_daily_report != day_key:
-                    last_daily_report = day_key
-                    daily_report()
-
-            if now_iran.weekday() == 5 and now_iran.hour == 10 and now_iran.minute < 5:
-                week_key = now_iran.strftime("%Y-%W")
-                if last_weekly_report != week_key:
-                    last_weekly_report = week_key
-                    weekly_report()
-
-            if now_iran.weekday() == 4 and now_iran.hour == 23 and now_iran.minute < 5:
-                weekend_key = now_iran.strftime("%Y-%W")
-                if last_weekend_msg != weekend_key:
-                    last_weekend_msg = weekend_key
-                    weekend_message()
-
-            time.sleep(30)
-
-        except Exception as e:
-            print(f"خطا در حلقه اصلی: {e}")
-            time.sleep(30)
+    # گزارش هر ۱۰ دقیقه برای اونر
+    if is_10_min():
+        owner_report()
+    
+    # اعلام پوزیشن‌های باز هر ۱ ساعت
+    if is_1_hour():
+        open_positions_report()
+    
+    # گزارش روزانه ساعت ۲۲ ایران
+    now_iran = datetime.now(timezone.utc) + timedelta(hours=3, minutes=30)
+    if now_iran.hour == 22 and now_iran.minute < 15:
+        daily_report()
+    
+    # گزارش هفتگی شنبه‌ها ساعت ۱۰ صبح
+    if now_iran.weekday() == 5 and now_iran.hour == 10 and now_iran.minute < 15:
+        weekly_report()
+    
+    # پیام آخر هفته جمعه‌ها ساعت ۲۳
+    if now_iran.weekday() == 4 and now_iran.hour == 23 and now_iran.minute < 15:
+        weekend_message()
+    
+    print("✅ پایان اجرا")
