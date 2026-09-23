@@ -156,14 +156,22 @@ def is_trading_hours():
     hour = now_iran.hour
     weekday = now_iran.weekday()
     
+    print(f"🕐 ساعت ایران: {now_iran.strftime('%Y-%m-%d %H:%M')} | weekday: {weekday} | hour: {hour}")
+    
     if weekday == 4 and hour >= 23:
+        print("❌ جمعه شب - بسته")
         return False
     if weekday == 5:
+        print("❌ شنبه - بسته")
         return False
     if weekday == 6 and hour < 3:
+        print("❌ یکشنبه قبل از 3 - بسته")
         return False
     if hour >= 22 or hour < 3:
+        print("❌ ساعت قطع سیگنال (22 تا 3)")
         return False
+    
+    print("✅ ساعت مجاز")
     return True
 
 # ---------- محاسبه پیپ/پوینت ----------
@@ -190,6 +198,7 @@ def get_forex_candles(symbol, interval):
         r = requests.get(url, params=params, timeout=15)
         data = r.json()
         if "values" not in data:
+            print(f"⚠️ خطای TwelveData {symbol}: {data.get('message', 'نامشخص')}")
             return None
         df = pd.DataFrame(data["values"])
         df["datetime"] = pd.to_datetime(df["datetime"])
@@ -197,7 +206,8 @@ def get_forex_candles(symbol, interval):
         for col in ["open", "high", "low", "close"]:
             df[col] = df[col].astype(float)
         return df
-    except:
+    except Exception as e:
+        print(f"❌ خطا در دریافت {symbol}: {e}")
         return None
 
 # ---------- دریافت کندل کریپتو ----------
@@ -208,6 +218,7 @@ def get_crypto_candles(symbol, interval):
         r = requests.get(url, params=params, timeout=15)
         data = r.json()
         if not isinstance(data, list) or len(data) == 0:
+            print(f"⚠️ خطای Binance {symbol}")
             return None
         df = pd.DataFrame(data, columns=[
             "time", "open", "high", "low", "close", "volume",
@@ -217,7 +228,8 @@ def get_crypto_candles(symbol, interval):
         for col in ["open", "high", "low", "close"]:
             df[col] = df[col].astype(float)
         return df
-    except:
+    except Exception as e:
+        print(f"❌ خطا در دریافت {symbol}: {e}")
         return None
 
 # ---------- محاسبه OsMA ----------
@@ -262,6 +274,7 @@ def check_signal(symbol, df, interval, market):
         signal = "SELL"
 
     if signal:
+        print(f"🎯 سیگنال پیدا شد! {symbol} - {signal}")
         unit = get_unit(symbol)
         
         if symbol.endswith("USDT"):
@@ -366,7 +379,7 @@ def check_signal(symbol, df, interval, market):
 """ + footer()
 
         send_to_channel(msg)
-        print(f"✅ {signal} - {symbol}")
+        print(f"✅ سیگنال {signal} - {symbol} ارسال شد")
 
 # ---------- بررسی نتایج ----------
 def check_results():
@@ -741,6 +754,7 @@ def process_telegram_updates():
                 user_name = msg["chat"].get("first_name", "Unknown")
 
                 if text == "/start":
+                    print(f"📩 پیام /start از {user_name} ({chat_id})")
                     users = load_users()
                     pending = load_pending()
 
@@ -786,6 +800,7 @@ def process_telegram_updates():
 
                 if data_cb.startswith("approve_"):
                     target_id = data_cb.replace("approve_", "")
+                    print(f"✅ تایید کاربر {target_id}")
                     users = load_users()
                     if target_id not in users["approved"]:
                         users["approved"].append(target_id)
@@ -829,7 +844,6 @@ def process_telegram_updates():
 if __name__ == "__main__":
     print("🚀 بات ۲۴ ساعته MiHi Btn فعال شد...")
     
-    # فعال‌سازی وب‌سرور برای Render
     keep_alive()
     
     try:
@@ -842,16 +856,23 @@ if __name__ == "__main__":
     last_weekly_report = None
     last_weekend_msg = None
 
+    loop_count = 0
     while True:
         try:
+            loop_count += 1
             now = datetime.now()
             now_iran = datetime.utcnow() + timedelta(hours=3, minutes=30)
+            
+            # لاگ هر ۱۰ حلقه (هر 5 دقیقه)
+            if loop_count % 10 == 0:
+                print(f"🔄 حلقه #{loop_count} | ساعت ایران: {now_iran.strftime('%H:%M:%S')}")
             
             process_telegram_updates()
             check_results()
 
             if is_trading_hours():
                 current_minute = now_iran.minute
+                
                 if current_minute in [0, 15, 30, 45]:
                     time_key = f"{now_iran.hour}_{current_minute}_{now_iran.day}"
                     if last_signal_check != time_key:
