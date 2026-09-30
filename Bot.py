@@ -15,8 +15,8 @@ TWELVEDATA_API_KEY = "7194fdf6808542bb8bf6bf61d7e7b5da"
 
 # ۱۰ جفت فارکس + طلا
 FOREX_SYMBOLS = [
-    "EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD", "USD/CAD",
-    "NZD/USD", "EUR/GBP", "EUR/JPY", "GBP/JPY", "XAU/USD"
+    "XAU/USD", "EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD",
+    "USD/CAD", "NZD/USD", "EUR/GBP"
 ]
 
 FOREX_INTERVALS = ["15min"]
