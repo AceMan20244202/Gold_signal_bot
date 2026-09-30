@@ -13,7 +13,7 @@ CHANNEL_ID = "-1004458845744"
 CHANNEL_INVITE_LINK = "https://t.me/+92D1qsrJrzw1OTc8"
 TWELVEDATA_API_KEY = "7194fdf6808542bb8bf6bf61d7e7b5da"
 
-# ۱۰ جفت فارکس برتر
+# ۱۰ جفت فارکس + طلا
 FOREX_SYMBOLS = [
     "EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD", "USD/CAD",
     "NZD/USD", "EUR/GBP", "EUR/JPY", "GBP/JPY", "XAU/USD"
@@ -84,6 +84,7 @@ WELCOME_MSG = """━━━━━━━━━━━━━━━━━━
 
 """ + footer()
 
+# ---------- دیتابیس ----------
 def load_users():
     if os.path.exists(USERS_FILE):
         with open(USERS_FILE, "r") as f: return json.load(f)
@@ -108,6 +109,7 @@ def load_db():
 def save_db(db):
     with open(DB_FILE, "w") as f: json.dump(db, f, indent=2)
 
+# ---------- ارسال ----------
 def send_to_channel(message):
     try: bot.send_message(CHANNEL_ID, message)
     except Exception as e: print(f"خطا کانال: {e}")
@@ -116,6 +118,7 @@ def send_to_admin(message, reply_markup=None):
     try: bot.send_message(ADMIN_ID, message, reply_markup=reply_markup)
     except Exception as e: print(f"خطا ادمین: {e}")
 
+# ---------- محاسبات ----------
 def calculate_pip_or_point(symbol, price_diff):
     if symbol.endswith("USDT"): return abs(price_diff)
     pip = PIP_SIZE.get(symbol, 0.0001)
@@ -160,6 +163,7 @@ def generate_analysis(signal, entry):
                 f"احتمال اصلاح نزولی وجود دارد.\n"
                 f"در صورت تثبیت زیر {entry:.5f}، ورود معتبر است.")
 
+# ---------- بررسی سیگنال (استراتژی سخت‌گیرانه - دقت بالا) ----------
 def check_signal(symbol, df, interval, market):
     if df is None or len(df) < 100: return
 
@@ -174,9 +178,10 @@ def check_signal(symbol, df, interval, market):
     price = df["close"].iloc[-1]
     signal = None
 
-    if last_slow < 0 and last_fast > prev_fast and last_slow > prev_slow:
+    # شرط سخت‌گیرانه - دقت بالا
+    if last_slow < 0 and last_fast < 0 and last_fast > prev_fast and last_slow > prev_slow:
         signal = "BUY"
-    if last_slow > 0 and last_fast < prev_fast and last_slow < prev_slow:
+    if last_slow > 0 and last_fast > 0 and last_fast < prev_fast and last_slow < prev_slow:
         signal = "SELL"
 
     if signal:
@@ -211,7 +216,7 @@ def check_signal(symbol, df, interval, market):
 
         recent = [s for s in db["signals"]
                   if s["symbol"] == symbol and s["type"] == signal
-                  and (now - datetime.strptime(s["time"], "%Y-%m-%d %H:%M")).total_seconds() < 1200]
+                  and (now - datetime.strptime(s["time"], "%Y-%m-%d %H:%M")).total_seconds() < 1800]
         if recent: return
 
         analysis = generate_analysis(signal, entry)
@@ -257,6 +262,7 @@ def check_signal(symbol, df, interval, market):
 
         send_to_channel(msg)
 
+# ---------- بررسی نتایج ----------
 def check_results():
     db = load_db()
     changed = False
@@ -298,6 +304,7 @@ def check_results():
 
     if changed: save_db(db)
 
+# ---------- گزارش روزانه ----------
 def daily_report():
     db = load_db()
     today = datetime.now().strftime("%Y-%m-%d")
@@ -321,6 +328,7 @@ def daily_report():
 """ + footer()
     send_to_channel(msg)
 
+# ---------- گزارش هفتگی ----------
 def weekly_report():
     db = load_db()
     now = datetime.now()
@@ -347,6 +355,7 @@ def weekly_report():
 """ + footer()
     send_to_channel(msg)
 
+# ---------- پیام آخر هفته ----------
 def weekend_message():
     msg = f"""🌙 پایان هفته معاملاتی
 ━━━━━━━━━━━━━━━━━━
@@ -356,6 +365,7 @@ def weekend_message():
 """ + footer()
     send_to_channel(msg)
 
+# ---------- پردازش پیام‌ها ----------
 def process_telegram_updates():
     offset_file = "offset.txt"
     offset = 0
@@ -440,10 +450,10 @@ def process_telegram_updates():
     except Exception as e:
         log(f"خطا آپدیت: {e}")
 
-# ---------- اجرا (بدون فیلتر زمان) ----------
+# ---------- اجرا ----------
 if __name__ == "__main__":
     print("🚀 اجرای بات...")
-    log(f"🚀 شروع اجرا")
+    log("🚀 شروع اجرا")
 
     try: process_telegram_updates()
     except Exception as e: log(f"❌ process: {e}")
@@ -451,7 +461,6 @@ if __name__ == "__main__":
     try: check_results()
     except Exception as e: log(f"❌ check_results: {e}")
 
-    # بررسی سیگنال‌ها - همیشه (بدون فیلتر زمان)
     count = 0
     for symbol in FOREX_SYMBOLS:
         for interval in FOREX_INTERVALS:
@@ -461,7 +470,7 @@ if __name__ == "__main__":
                 count += 1
             except Exception as e: log(f"❌ {symbol}: {e}")
 
-    log(f"✅ {count} نماد فارکس بررسی شد")
+    log(f"✅ {count} نماد بررسی شد")
 
     now_iran = datetime.now(timezone.utc) + timedelta(hours=3, minutes=30)
     if now_iran.hour == 22 and now_iran.minute < 25:
