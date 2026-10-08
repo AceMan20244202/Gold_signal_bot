@@ -180,9 +180,9 @@ def check_signal(symbol, df, interval, market):
 
     # شرط سخت‌گیرانه - دقت بالا
     if last_slow < 0 and last_fast < 0 and last_fast > prev_fast and last_slow > prev_slow:
-        signal = "BUY"
-    if last_slow > 0 and last_fast > 0 and last_fast < prev_fast and last_slow < prev_slow:
         signal = "SELL"
+    if last_slow > 0 and last_fast > 0 and last_fast < prev_fast and last_slow < prev_slow:
+        signal = "BUY"
 
     if signal:
         unit = get_unit(symbol)
