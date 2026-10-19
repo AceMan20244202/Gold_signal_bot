@@ -183,11 +183,7 @@ def check_signal(symbol, df, interval, market):
         signal = "BUY"
     if last_slow > 0 and last_fast > 0 and last_fast < prev_fast and last_slow < prev_slow:
         signal = "SELL"
-        
-    # 🔄 فقط برای طلا سیگنال را برعکس کن
-    if symbol == "XAU/USD" and signal:
-        signal = "SELL" if signal == "BUY" else "BUY"
-        
+
     if signal:
         unit = get_unit(symbol)
         if symbol.endswith("USDT"):
