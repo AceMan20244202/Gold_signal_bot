@@ -15,8 +15,8 @@ TWELVEDATA_API_KEY = "7194fdf6808542bb8bf6bf61d7e7b5da"
 
 # ۱۰ جفت فارکس + طلا
 FOREX_SYMBOLS = [
-    "XAU/USD", "EUR/USD", "BTC/USD"
- ]
+    "XAU/USD", "EUR/USD"
+]
 
 FOREX_INTERVALS = ["15min"]
 
@@ -25,12 +25,12 @@ USERS_FILE = "users_db.json"
 PENDING_FILE = "pending_db.json"
 
 PIP_SIZE = {
-    "EUR/USD": 0.0001, "BTC/USD": 0.0001, "XAU/USD": 0.1
+    "EUR/USD": 0.0001, "XAU/USD": 0.1
 }
 
-RR_TP1 = 2.0
-RR_TP2 = 2.5
-RR_TP3 = 3.0
+RR_TP1 = 1.5
+RR_TP2 = 2.0
+RR_TP3 = 2.5
 ENTRY_FILTER_PIPS = 5
 
 # ==================================================
